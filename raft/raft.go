@@ -17,8 +17,13 @@ package raft
 //   in the same server.
 //
 
-import "sync"
-import "github.com/girikuncoro/go-raft/labrpc"
+import (
+	"math/rand"
+	"sync"
+	"time"
+
+	"github.com/girikuncoro/go-raft/labrpc"
+)
 
 // import "bytes"
 // import "encoding/gob"
@@ -69,16 +74,17 @@ type Raft struct {
 	// Leader state
 	nextIndex  []int // for each server, index of next log entry
 	matchIndex []int // for each server, index of highest log entry known to be replicated
+
+	// Heartbeat
+	lastHeartBeat time.Time
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
-	var term int
-	var isleader bool
-	// Your code here (2A).
-	return term, isleader
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	return rf.currentTerm, rf.state == StateFollower
 }
 
 //
@@ -110,22 +116,6 @@ func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
-}
-
-//
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-}
-
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
 }
 
 //
@@ -221,10 +211,30 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		me:        me,
 	}
 
-	// Your initialization code here (2A, 2B, 2C).
-
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	go rf.startElectionProcess()
+
 	return rf
+}
+
+func (rf *Raft) startElectionProcess() {
+	electionTimeout := func() time.Duration {
+		// Randomized timeouts between [200,500]-ms
+		return (200 + time.Duration(rand.Intn(300))) * time.Millisecond
+	}
+
+	currentTimeout := electionTimeout()
+	currentTime := time.Now().Add(currentTimeout)
+
+	if rf.state != StateLeader && currentTime.Sub(rf.lastHeartBeat) >= currentTimeout {
+		// Start election process if not leader and no heartbeat within the random election timeout
+		go rf.beginElection()
+	}
+	go rf.startElectionProcess()
+}
+
+func (rf *Raft) beginElection() {
+	// TODO
 }
