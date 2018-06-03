@@ -23,6 +23,14 @@ import "github.com/girikuncoro/go-raft/labrpc"
 // import "bytes"
 // import "encoding/gob"
 
+type NodeState string
+
+const (
+	StateFollower  NodeState = "StateFollower"
+	StateCandidate           = "StateCandidate"
+	StateLeader              = "StateLeader"
+)
+
 //
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -42,12 +50,25 @@ type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
-	me        int                 // this peer's index into peers[]
 
-	// Your data here (2A, 2B, 2C).
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
+	// General state
+	nodeID string
+	me     int // this peer's index into peers[]
+	state  NodeState
 
+	// Election state
+	currentTerm int
+	votedFor    string // leaderID that is voted for in current term, empty string of no vote
+	leaderID    string
+
+	// Log state
+	log         []LogEntry
+	commitIndex int // index of highest log entry known to be committed (init 0, increases monotonically)
+	lastApplied int // index of highest log entry applied to state machine (init 0, increases monotonically)
+
+	// Leader state
+	nextIndex  []int // for each server, index of next log entry
+	matchIndex []int // for each server, index of highest log entry known to be replicated
 }
 
 // return currentTerm and whether this server
