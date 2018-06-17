@@ -18,6 +18,7 @@ package raft
 //
 
 import (
+	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -154,9 +155,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 //
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply, voteChan chan int) {
+	if ok := rf.peers[server].Call("Raft.RequestVote", args, reply); ok {
+		voteChan <- server
+	}
 }
 
 //
@@ -221,8 +223,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) startElectionProcess() {
 	electionTimeout := func() time.Duration {
-		// Randomized timeouts between [200,500]-ms
-		return (200 + time.Duration(rand.Intn(300))) * time.Millisecond
+		// Randomized timeouts between [300,500]-ms
+		return (300 + time.Duration(rand.Intn(200))) * time.Millisecond
 	}
 
 	currentTimeout := electionTimeout()
@@ -236,5 +238,31 @@ func (rf *Raft) startElectionProcess() {
 }
 
 func (rf *Raft) beginElection() {
-	// TODO
+	rf.mu.Lock()
+	rf.becomeCandidate()
+	log.Println("Begin election")
+
+	// Request vote from peers
+	req := RequestVoteArgs{
+		Term:         rf.currentTerm,
+		CandidateID:  rf.nodeID,
+		LastLogTerm:  rf.currentTerm,
+		LastLogIndex: rf.commitIndex,
+	}
+	res := make([]RequestVoteReply, len(rf.peers))
+	voteChan := make(chan int, len(rf.peers))
+	for i := range rf.peers {
+		if i != rf.me {
+			go rf.sendRequestVote(i, &req, &res[i], voteChan)
+		}
+	}
+	rf.mu.Unlock()
+
+}
+
+// Become candidate, increase term and vote for itself
+func (rf *Raft) becomeCandidate() {
+	rf.state = StateCandidate
+	rf.currentTerm++
+	rf.votedFor = rf.nodeID
 }
