@@ -249,15 +249,33 @@ func (rf *Raft) beginElection() {
 		LastLogTerm:  rf.currentTerm,
 		LastLogIndex: rf.commitIndex,
 	}
-	res := make([]RequestVoteReply, len(rf.peers))
+	replies := make([]RequestVoteReply, len(rf.peers))
 	voteChan := make(chan int, len(rf.peers))
 	for i := range rf.peers {
 		if i != rf.me {
-			go rf.sendRequestVote(i, &req, &res[i], voteChan)
+			go rf.sendRequestVote(i, &req, &replies[i], voteChan)
 		}
 	}
 	rf.mu.Unlock()
 
+	votes := 1
+	for i := 0; i < len(replies); i++ {
+		reply := replies[<-voteChan]
+
+		rf.mu.Lock()
+		if reply.Term > rf.currentTerm {
+			log.Println("Step down as leader/candidate, become follower")
+			rf.becomeFollower(reply.Term)
+			break
+		} else if votes += reply.VoteCounted(); votes > len(replies)/2 {
+			// Promote to leader if has majority vote
+			if rf.state == StateCandidate {
+				log.Println("Election won, become leader")
+				rf.becomeLeader()
+			}
+		}
+		rf.mu.Unlock()
+	}
 }
 
 // Become candidate, increase term and vote for itself
@@ -265,4 +283,15 @@ func (rf *Raft) becomeCandidate() {
 	rf.state = StateCandidate
 	rf.currentTerm++
 	rf.votedFor = rf.nodeID
+}
+
+// Become follower, reassign term with reply term
+func (rf *Raft) becomeFollower(term int) {
+	rf.state = StateFollower
+	rf.currentTerm = term
+	rf.votedFor = ""
+}
+
+func (rf *Raft) becomeLeader() {
+	rf.state = StateLeader
 }

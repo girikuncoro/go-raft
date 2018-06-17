@@ -17,3 +17,10 @@ type RequestVoteReply struct {
 	Term        int  // currentTerm, for candidate to update itself
 	VoteGranted bool // true means candidate received vote
 }
+
+func (rv *RequestVoteReply) VoteCounted() int {
+	if rv.VoteGranted {
+		return 1
+	}
+	return 0
+}
